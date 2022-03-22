@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RAA reader bot</title>
+</head>
+<body style="display: flex; flex-flow: row wrap; justify-content: space-around; align-items: center;">
+<section>
+<h1>RAA reader bot</h1>
+<form method="POST" action="submit" id="submit" target="requestsResult">
+    <h2>Mise à jour des paramètres : </h2>
+    <div>
+        <label for="clientMail">Mail :</label>
+        <input type="email" id="clientMail" name="clientMail" required>
+    </div>
+    <div>
+        <label for="searchWords">Mots clés à chercher, séparés par des espaces :</label>
+        <input type="text" id="searchWords" name="searchWords" required>
+    </div>
+    <div>
+        <label for="clientMail" for="occurences">Nombre minimum d'occurences de ces mots dans le document :</label>
+        <input type="number" value="1" min="1" name="occurences" id="occurences" required>
+    </div>
+    <div>
+        <label for="mandatorySearchWords">Mots clés obligatoires :</label>
+        <input type="text" id="mandatorySearchWords" name="mandatorySearchWords">
+    </div>
+    <div>
+        <input type="submit">
+        <input type="reset">
+    </div>
+</form>
+<form method="POST" action="cron" id="cron" target="requestsResult">
+    <h2>Mise à jour du régime de fonctionnement</h2>
+    <div>
+        <label for="frequency">Fréquence de déclenchement du script :</label>
+        <input type="time" name="frequency" id="frequency" value="03:00" min="00:30" max="24:00" required>
+    </div>
+    <div>
+        <input type="submit">
+        <input type="reset">
+    </div>
+</form>
+<form method="POST" action="fire" id="fire" target="requestsResult">
+    <h2>Déclenchement immédiat du script</h2>
+    <input type="submit" value="Déclencher">
+</form>
+</section><section>
+<h2>Dernier RAA analysé : </h2>
+<iframe id="lastTitle" name="lastTitle" style="width:600px; height:50px"></iframe>
+<form method="GET" action="title" target="lastTitle">
+    <input type="submit" value="Actualiser">
+</form>
+<form method="POST" action="title" target="requestsResult">
+    <input type="submit" value="Marquer comme non vérifié">
+</form>
+<form method="GET" action="time" target="executionTime">
+    <h2>Heures d'exécution : </h2>
+    <iframe id="executionTime" name="executionTime" style="width:600px; height:50px"></iframe>
+    <br>
+    <input type="submit" value="Actualiser">
+</form>
+<h2>Réponses du serveur :</h2>
+<iframe id="requestsResult" name="requestsResult" style="width:600px; height:50px"></iframe>
+</section>
+</body>
+</html>
