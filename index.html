@@ -46,14 +46,14 @@
     <input type="submit" value="Déclencher">
 </form>
 </section><section>
-<h2>Dernier RAA analysé : </h2>
+<h2>Liste des RAA analysés : </h2>
 <iframe id="lastTitle" name="lastTitle" style="width:600px; height:50px"></iframe>
-<form method="GET" action="title" target="lastTitle">
+<form method="GET" action="titles" target="lastTitle">
     <input type="submit" value="Actualiser">
 </form>
-<form method="POST" action="title" target="requestsResult">
+<!--<form method="POST" action="title" target="requestsResult">
     <input type="submit" value="Marquer comme non vérifié">
-</form>
+</form>-->
 <form method="GET" action="time" target="executionTime">
     <h2>Heures d'exécution : </h2>
     <iframe id="executionTime" name="executionTime" style="width:600px; height:50px"></iframe>

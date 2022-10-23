@@ -1,1 +1,8 @@
-{"receiverMail":"","searchWords":[],"minimumWordsLimit":1,"mustContainWords":[""],"lastTitle":"","cronScheduling":"* */3 * * *"}
+{
+  "receiverMail": "",
+  "searchWords": [],
+  "minimumWordsLimit": 1,
+  "mustContainWords": [],
+  "checkedRAA": [],
+  "cronScheduling": "0 */3 * * *"
+}

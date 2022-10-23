@@ -1,17 +1,13 @@
 const puppeteer = require('puppeteer');
 const cron = require('cron');
-const download = require('download-file');
 const pdfParse = require('pdf-parse');
-const fs = require('fs');
+const fs = require('node:fs');
 const nodemailer = require('nodemailer');
 const express = require('express');
+const axios = require('axios');
 require('dotenv').config();
+let params = {};
 
-function delay(milisec) {
-    return new Promise(resolve => {
-        setTimeout(() => { resolve('') }, milisec);
-    })
-}
 
 async function updateParams(params) {
     let stringJson = JSON.stringify(params);
@@ -21,26 +17,37 @@ async function updateParams(params) {
             console.log(err);
         }
     });
-
     log("Params Updated");
-
 }
 
 function log(message){
     console.log(`[${new Date(Date.now()).toLocaleTimeString()}] ${message}`);
 }
 
-let transporter = nodemailer.createTransport({
-    service: 'gmail',
+function delay(milisec) {
+    return new Promise(resolve => {
+        setTimeout(() => { resolve('') }, milisec);
+    })
+}
+
+let transport = nodemailer.createTransport({
+    host: process.env.HOST,
+    port: process.env.PORT,
     auth: {
-        user: "raa.reader44@gmail.com",
-        pass: process.env.PASSWORD
+        user: process.env.USER,
+        pass: process.env.PASS
     }
 });
 
-let params = require('./params.json');
-log("Starting bot with params : ");
-console.log(params);
+
+try {
+    const data = fs.readFileSync('./params.json', 'utf8');
+    params = JSON.parse(data);
+    log("Starting bot with params : ");
+    console.log(params);
+} catch (err) {
+    console.error(err);
+}
 
 const frenchMonth = {
     0: 'Janvier',
@@ -57,6 +64,69 @@ const frenchMonth = {
     11: 'Decembre'
 };
 
+async function readRAA(link, title) {
+    log("Evaluated RAA : " + link);
+
+    const response = await axios({
+        url: link,
+        method: 'GET',
+        responseType: 'arraybuffer'
+    })
+
+    const buffer = await Buffer.from(response.data)
+
+    try {
+        const data = await pdfParse(buffer);
+        let text = data.text.toLowerCase();
+        let containSearchWords = {'total': 0, 'list': []};
+
+        for (let searchWord of params.searchWords) {
+            if (text.includes(searchWord.toLowerCase())) {
+                containSearchWords.list.push(searchWord); //Verifie si le mot est présent une fois
+                log(searchWord + " found !");
+                while (text.includes(searchWord.toLowerCase())) { //Compte le nombre d'occurences du mot
+                    text = text.substring(text.indexOf(searchWord.toLowerCase()) + searchWord.length);
+                    containSearchWords.total++;
+                }
+            }
+        }
+
+        if (containSearchWords.total < params.minimumWordsLimit || containSearchWords.total === 0) {
+            log(`Not enough search words found, found ${containSearchWords.total.toString()}, need ${params.minimumWordsLimit.toString()}`);
+            return;
+        }
+
+        for (let mandatoryWord of params.mustContainWords) {
+            if (!containSearchWords.list.includes(mandatoryWord) && mandatoryWord !== "") {
+                log(`Mandatory word ${mandatoryWord} not found`);
+                return;
+            }
+        }
+
+        let wordsFound = '';
+        for (let word of containSearchWords.list) {
+            wordsFound = wordsFound + word + ", ";
+        }
+        let mailOptions = {
+            from: 'raa.reader44@gmail.com',
+            to: params.receiverMail,
+            subject: title,
+            text: 'Rapport du bot RAAreader : les mots ' + wordsFound.slice(0, -2) + " ont été trouvés dans le document " + title + " un total de " + containSearchWords.total + " fois.\n"+link,
+        };
+
+        transport.sendMail(mailOptions, function (error, info) {
+            if (error) {
+                log("Email sending error :");
+                console.log(error);
+            } else {
+                log('Email sent: ' + info.response);
+            }
+        });
+    } catch (err) {
+        console.error(new Error(err));
+    }
+}
+
 
 function createCronTask(cronScheduling) {
 
@@ -69,99 +139,41 @@ function createCronTask(cronScheduling) {
             const current = new Date();
             requestUrl = requestUrl + current.getFullYear().toString() + '/';
             requestUrl = requestUrl + frenchMonth[current.getMonth()];
-            const browser = await puppeteer.launch();
+            const browser = await puppeteer.launch({headless: true});
             const page = await browser.newPage();
             await page.goto(requestUrl);
-            const pagination = await page.$$('.sous_rub_seule .pagination');
-            if(pagination.length !== 0){
-                const spanList = await page.$$('.sous_rub_seule .pagination>span');
-                await page.evaluate((selector) => document.querySelector(selector).click(), '.pagination>span:nth-child(' + spanList.length.toString() +') a');
-                await delay(5000); //Prefecture website is lagged as fuck
-            }
-            const node = await page.$$('.sous_rub_seule ul li a');
-            if (node.length === 0) {
+            let nodeList = [];
+            nodeList.push(await page.$$('.sous_rub_seule ul li a'))
+            if (nodeList[0].length === 0) {
                 log("No RAA this month");
                 return;
             }
-            const title = await page.evaluate(el => el.textContent, node[node.length - 1]);
-            if (title === params.lastTitle) {
-                log("No new RAA");
-                return;
+            const pagination = await page.$$('.sous_rub_seule .pagination');
+            if(pagination.length !== 0){
+                const spanList = await page.$$('.sous_rub_seule .pagination .pages>span');
+                for(let i = 2; i <= spanList.length; i++){
+                    await page.evaluate(`document.querySelector(".pagination .pages .other:nth-child(3) a").click()`)
+                    await delay(5000) //prefercture website is lagged as fuck
+                    nodeList.push(await page.$$('.sous_rub_seule ul li a'))
+                    await page.screenshot({path:`${i.toString(10)}.png`})
+                }
             }
-            const link = 'https://www.loire-atlantique.gouv.fr' + await page.evaluate(el => el.getAttribute('href'), node[node.length - 1]);
-            await browser.close();
-            log("Last RAA title : " + title);
-            download(link, {
-                directory: "",
-                filename: "RAA.pdf"
-            }, function (err) {
-                if (err) {
-                    log("PDF download error");
-                    console.log(err);
-                }
-            });
-
-            const buffer = fs.readFileSync("RAA.pdf");
-
-            try {
-                const data = await pdfParse(buffer);
-                let text = data.text.toLowerCase();
-                let containSearchWords = {'total': 0, 'list': []};
-
-                for (searchWord of params.searchWords) {
-                    if (text.includes(searchWord.toLowerCase())) {
-                        containSearchWords.list.push(searchWord); //Verifie si le mot est présent une fois
-                        log(searchWord + " found !");
-                        while (text.includes(searchWord.toLowerCase())) { //Compte le nombre d'occurences du mot
-                            text = text.substring(text.indexOf(searchWord.toLowerCase()) + searchWord.length);
-                            containSearchWords.total++;
-                        }
-                    }
-                }
-
-                if (containSearchWords.total < params.minimumWordsLimit || containSearchWords.total === 0) {
-                    log(`Not enough search words found, found ${containSearchWords.total.toString()}, need ${params.minimumWordsLimit.toString()}`);
-                    params.lastTitle = title;
-                    await updateParams(params)
-                    return;
-                }
-
-                for (mandatoryWord of params.mustContainWords) {
-                    if (!containSearchWords.list.includes(mandatoryWord) && mandatoryWord !== "") {
-                        log(`Mandatory word ${mandatoryWord} not found`);
-                        params.lastTitle = title;
+            if(! "checkedRAA" in params){
+                params["checkedRAA"] = [];
+            }
+            for(let node of nodeList){
+                for(let el of node){
+                    const link = encodeURI("https://www.loire-atlantique.gouv.fr" + await page.evaluate(el => el.getAttribute('href'), el));
+                    const title = await page.evaluate(el => el.innerHTML, el);
+                    if(!params.checkedRAA.includes(title)){
+                        await readRAA(link, title)
+                        params.checkedRAA.push(title);
                         await updateParams(params)
-                        return;
                     }
                 }
-
-                let wordsFound = '';
-                for (word of containSearchWords.list) {
-                    wordsFound = wordsFound + word + ", ";
-                }
-                let mailOptions = {
-                    from: 'raa.reader44@gmail.com',
-                    to: params.receiverMail,
-                    subject: title,
-                    text: 'Rapport du bot RAAreader : les mots ' + wordsFound.slice(0, -2) + " ont été trouvés dans le document " + title + " un total de " + containSearchWords.total + " fois.",
-                    attachments: {path: "RAA.pdf"}
-                };
-
-                transporter.sendMail(mailOptions, function (error, info) {
-                    if (error) {
-                        log("Email sending error :");
-                        console.log(error);
-                    } else {
-                        log('Email sent: ' + info.response);
-                    }
-                });
-
-                params.lastTitle = title;
-                await updateParams(params)
-
-            } catch (err) {
-                throw new Error(err);
             }
+
+            await browser.close()
         })();
     }, {}));
 }
@@ -217,10 +229,10 @@ app.post('/fire', function (req, res) {
     res.status(200).send("Script déclenché !");
 });
 
-app.get('/title', function (req, res) {
+app.get('/titles', function (req, res) {
     res.status(200).format({
         'text/html': function () {
-            res.send('<p>Dernier RAA analysé : ' + params.lastTitle + '</p>');
+            res.send(params.checkedRAA.reduce((prev, nex) => `${prev}<br>${nex}`, "</p>Liste des RAA analysés : ") + '</p>');
         }
     });
 });
