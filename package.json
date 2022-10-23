@@ -1,14 +1,18 @@
 {
   "name": "raareader",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.0.1",
+  "description": "A small script to analyse Loire Atlantique prefecture RAAs",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "npm index"
   },
   "keywords": [],
-  "author": "",
+  "author": "Allan Cueff",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allan-cff/RAA-reader.git"
+  },
   "dependencies": {
     "axios": "^0.27.2",
     "cron": "^1.8.2",
