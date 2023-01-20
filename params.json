@@ -1,8 +1,8 @@
 {
-  "receiverMail": "",
-  "searchWords": [],
-  "minimumWordsLimit": 1,
-  "mustContainWords": [],
-  "checkedRAA": [],
-  "cronScheduling": "0 */3 * * *"
+    "searchWords": [],
+    "minimumWordsLimit": 1,
+    "mustContainWords": [],
+    "checkedRAA": [],
+    "cronScheduling": "0 */3 * * *",
+    "foundSearchWords": []
 }

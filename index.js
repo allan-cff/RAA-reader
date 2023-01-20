@@ -2,7 +2,6 @@ const puppeteer = require('puppeteer');
 const cron = require('cron');
 const pdfParse = require('pdf-parse');
 const fs = require('node:fs');
-const nodemailer = require('nodemailer');
 const express = require('express');
 const axios = require('axios');
 require('dotenv').config();
@@ -26,19 +25,9 @@ function log(message){
 
 function delay(milisec) {
     return new Promise(resolve => {
-        setTimeout(() => { resolve('') }, milisec);
-    })
+        setTimeout(() => { resolve() }, milisec);
+    });
 }
-
-let transport = nodemailer.createTransport({
-    host: process.env.HOST,
-    port: process.env.PORT,
-    auth: {
-        user: process.env.USER,
-        pass: process.env.PASS
-    }
-});
-
 
 try {
     const data = fs.readFileSync('./params.json', 'utf8');
@@ -71,9 +60,9 @@ async function readRAA(link, title) {
         url: link,
         method: 'GET',
         responseType: 'arraybuffer'
-    })
+    });
 
-    const buffer = await Buffer.from(response.data)
+    const buffer = await Buffer.from(response.data);
 
     try {
         const data = await pdfParse(buffer);
@@ -103,25 +92,16 @@ async function readRAA(link, title) {
             }
         }
 
-        let wordsFound = '';
+        let wordsFound = [];
         for (let word of containSearchWords.list) {
             wordsFound = wordsFound + word + ", ";
         }
-        let mailOptions = {
-            from: 'raa.reader44@gmail.com',
-            to: params.receiverMail,
-            subject: title,
-            text: 'Rapport du bot RAAreader : les mots ' + wordsFound.slice(0, -2) + " ont été trouvés dans le document " + title + " un total de " + containSearchWords.total + " fois.\n"+link,
-        };
-
-        transport.sendMail(mailOptions, function (error, info) {
-            if (error) {
-                log("Email sending error :");
-                console.log(error);
-            } else {
-                log('Email sent: ' + info.response);
-            }
-        });
+        params.foundSearchWords.push({
+            name : title,
+            searchWords : containSearchWords.list,
+            occurences:containSearchWords.total,
+        })
+        updateParams(params);
     } catch (err) {
         console.error(new Error(err));
     }
@@ -143,20 +123,21 @@ function createCronTask(cronScheduling) {
             const page = await browser.newPage();
             await page.goto(requestUrl);
             let nodeList = [];
-            nodeList.push(await page.$$('.sous_rub_seule ul li a'))
+            let pagination = [];
+            let i = 1;
+            do {
+                nodeList.push(await page.$$('.fr-col-12 .fr-card a'));
+                await page.screenshot({path:`${i.toString(10)}.png`});
+                pagination = await page.$$('nav .fr-pagination__list>li');
+                if(pagination.length !== 0){
+                    await page.evaluate(`document.querySelector(".fr-pagination__link--next").click()`);
+                    await delay(5000); //prefercture website is lagged as fuck
+                    i++;
+                }
+            } while (pagination.length !== 0);
             if (nodeList[0].length === 0) {
                 log("No RAA this month");
                 return;
-            }
-            const pagination = await page.$$('.sous_rub_seule .pagination');
-            if(pagination.length !== 0){
-                const spanList = await page.$$('.sous_rub_seule .pagination .pages>span');
-                for(let i = 2; i <= spanList.length; i++){
-                    await page.evaluate(`document.querySelector(".pagination .pages .other:nth-child(3) a").click()`)
-                    await delay(5000) //prefercture website is lagged as fuck
-                    nodeList.push(await page.$$('.sous_rub_seule ul li a'))
-                    await page.screenshot({path:`${i.toString(10)}.png`})
-                }
             }
             if(! "checkedRAA" in params){
                 params["checkedRAA"] = [];
@@ -164,16 +145,17 @@ function createCronTask(cronScheduling) {
             for(let node of nodeList){
                 for(let el of node){
                     const link = encodeURI("https://www.loire-atlantique.gouv.fr" + await page.evaluate(el => el.getAttribute('href'), el));
-                    const title = await page.evaluate(el => el.innerHTML, el);
+                    let title = await page.evaluate(el => el.innerHTML, el);
+                    title = title.replaceAll(' ', '').replaceAll('\n', '');
                     if(!params.checkedRAA.includes(title)){
-                        await readRAA(link, title)
+                        await readRAA(link, title);
                         params.checkedRAA.push(title);
-                        await updateParams(params)
+                        await updateParams(params);
                     }
                 }
             }
 
-            await browser.close()
+            await browser.close();
         })();
     }, {}));
 }
@@ -185,11 +167,10 @@ const app = express();
 
 app.use(express.urlencoded({
     extended: true
-}))
+}));
 
 app.post('/submit', function (req, res) {
-    params.receiverMail = req.body.clientMail;
-    params.searchWords = req.body.searchWords.split(' ');
+    params.searchWords = req.body.searchWords.split(req.body.separator || ' ');
     params.minimumWordsLimit = parseInt(req.body.occurences[0], 10);
     params.mustContainWords = req.body.mandatorySearchWords.split(' ');
     (async () => {
@@ -232,18 +213,19 @@ app.post('/fire', function (req, res) {
 app.get('/titles', function (req, res) {
     res.status(200).format({
         'text/html': function () {
-            res.send(params.checkedRAA.reduce((prev, nex) => `${prev}<br>${nex}`, "</p>Liste des RAA analysés : ") + '</p>');
+            res.send(params.checkedRAA.reduce((previous, current) => `${previous}<br>${current}`, "<p>") + '</p>');
         }
     });
 });
 
-app.post('/title', function (req, res) {
+app.post('/erase', function (req, res) {
     res.status(200).format({
         'text/html': function () {
-            res.send('<p>Le document : ' + params.lastTitle + ' sera de nouveau analysé lors de la prochaine execution.</p>')
+            res.send('<p>Les documents seront de nouveau analysés lors de la prochaine execution.</p>');
         }
     });
-    params.lastTitle = "";
+    params.checkedRAA = [];
+    params.foundSearchWords = [];
     (async () => {
         await updateParams(params);
     })();
@@ -252,7 +234,19 @@ app.post('/title', function (req, res) {
 app.get('/time', function (req, res) {
     res.status(200).format({
         'text/html': function () {
-            res.send('<p>Dernière execution : ' + new Date(checkLatestRAA.lastDate()).toTimeString() + '<br>Prochaine execution : ' + new Date(checkLatestRAA.nextDates()).toTimeString() + '</p>')
+            res.send('<p>Dernière execution : ' + new Date(checkLatestRAA.lastDate()).toTimeString() + '<br>Prochaine execution : ' + new Date(checkLatestRAA.nextDates()).toTimeString() + '</p>');
+        }
+    });
+});
+
+app.get('/found', function (req, res) {
+    res.status(200).format({
+        'text/html': function () {
+            if(params.foundSearchWords.length === 0){
+                res.send(`<p>Aucun mot clé trouvé</p>`);
+            } else {
+                res.send(`<p${params.foundSearchWords.reduce((previous, current) => `${previous}<br>Les mots ${current.searchWords.join(', ')} ont été trouvés un total de ${current.occurences} fois dans le document ${current.name}`)}</p>`);
+            }
         }
     });
 });
@@ -262,5 +256,5 @@ app.get('*', function (req, res) {
 });
 
 app.listen(8080, () => {
-    log("Web server is listening")
-})
+    log("Web server is listening");
+});
