@@ -122,39 +122,33 @@ function createCronTask(cronScheduling) {
             const browser = await puppeteer.launch({headless: true});
             const page = await browser.newPage();
             await page.goto(requestUrl);
-            let nodeList = [];
-            let pagination = [];
-            let i = 1;
-            do {
+            const nodeList = [];
+            const pagination = await page.$$('nav .fr-pagination__list>li');;
+            for(let i = 2; i < pagination.length - 2; i++){
                 nodeList.push(await page.$$('.fr-col-12 .fr-card a'));
-                await page.screenshot({path:`${i.toString(10)}.png`});
-                pagination = await page.$$('nav .fr-pagination__list>li');
-                if(pagination.length !== 0){
-                    await page.evaluate(`document.querySelector(".fr-pagination__link--next").click()`);
-                    await delay(5000); //prefercture website is lagged as fuck
-                    i++;
+                if (nodeList[0].length === 0 && i === 2) {
+                    log("No RAA this month");
+                    return;
                 }
-            } while (pagination.length !== 0);
-            if (nodeList[0].length === 0) {
-                log("No RAA this month");
-                return;
-            }
-            if(! "checkedRAA" in params){
-                params["checkedRAA"] = [];
-            }
-            for(let node of nodeList){
-                for(let el of node){
-                    const link = encodeURI("https://www.loire-atlantique.gouv.fr" + await page.evaluate(el => el.getAttribute('href'), el));
-                    let title = await page.evaluate(el => el.innerHTML, el);
-                    title = title.replaceAll(' ', '').replaceAll('\n', '');
-                    if(!params.checkedRAA.includes(title)){
-                        await readRAA(link, title);
-                        params.checkedRAA.push(title);
-                        await updateParams(params);
+                if(! "checkedRAA" in params){
+                    params["checkedRAA"] = [];
+                }
+                for(let node of nodeList){
+                    for(let el of node){
+                        const link = encodeURI("https://www.loire-atlantique.gouv.fr" + await page.evaluate(el => el.getAttribute('href'), el));
+                        let title = await page.evaluate(el => el.innerHTML, el);
+                        title = title.replaceAll(' ', '').replaceAll('\n', '');
+                        if(!params.checkedRAA.includes(title)){
+                            await readRAA(link, title);
+                            params.checkedRAA.push(title);
+                            await updateParams(params);
+                        }
                     }
+                    nodeList.splice(nodeList.indexOf(node), 1);
                 }
+                await page.evaluate(`document.querySelector(".fr-pagination__link--next").click()`);
+                await delay(5000); //prefercture website is lagged as fuck
             }
-
             await browser.close();
         })();
     }, {}));
